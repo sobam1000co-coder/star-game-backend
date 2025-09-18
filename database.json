@@ -1,4 +1,6 @@
 {
-  "totalDistributed": 0,
-  "players": {}
+  "totalSupply": 21000000,
+  "distributed": 0,
+  "users": {}
 }
+
