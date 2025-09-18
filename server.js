@@ -1,87 +1,53 @@
 import express from "express";
-import fs from "fs";
 import cors from "cors";
-import bodyParser from "body-parser";
+import fs from "fs-extra";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(bodyParser.json());
-
 const DB_FILE = "./database.json";
 
-// Inicializa banco
-if (!fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(
-    DB_FILE,
-    JSON.stringify({ totalDistributed: 0, players: {} }, null, 2)
-  );
+app.use(cors());
+app.use(express.json());
+
+// carregar database
+async function loadDB() {
+  try {
+    const data = await fs.readFile(DB_FILE, "utf8");
+    return JSON.parse(data);
+  } catch {
+    return { totalSupply: 21000000, distributed: 0, users: {} };
+  }
 }
 
-function loadDB() {
-  return JSON.parse(fs.readFileSync(DB_FILE));
+// salvar database
+async function saveDB(db) {
+  await fs.writeFile(DB_FILE, JSON.stringify(db, null, 2));
 }
 
-function saveDB(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-}
+// rota para ganhar STR
+app.post("/earn", async (req, res) => {
+  const { username, amount } = req.body;
+  let db = await loadDB();
 
-// Função para calcular dificuldade dinâmica
-function calculateDifficulty(totalDistributed) {
-  if (totalDistributed < 500000) return 100; // base
-  let extra = Math.floor((totalDistributed - 500000) / 100000) * 5;
-  return 100 + extra; // aumenta em 5% a cada 100k
-}
-
-// Endpoint: ganhar moeda
-// Endpoint para ganhar moedas STR
-app.post("/claim", (req, res) => {
-  const { playerId, points } = req.body;
-  const db = loadDB();
-
-  // Dificuldade dinâmica
-  const difficulty = calculateDifficulty(db.totalDistributed);
-
-  if (points >= difficulty) {
-    const reward = 1; // 1 STR por atingir pontos suficientes
-    db.totalDistributed += reward;
-
-    if (!db.players[playerId]) {
-      db.players[playerId] = { balance: 0 };
-    }
-    db.players[playerId].balance += reward;
-
-    saveDB(db);
-    return res.json({
-      success: true,
-      reward,
-      newBalance: db.players[playerId].balance,
-      difficulty,
-      totalDistributed: db.totalDistributed
-    });
+  if (db.distributed + amount > db.totalSupply) {
+    return res.status(400).json({ error: "Total supply atingido!" });
   }
 
-  return res.json({
-    success: false,
-    message: "Pontuação insuficiente para ganhar STR",
-    difficulty
-  });
+  if (!db.users[username]) db.users[username] = { balance: 0 };
+
+  db.users[username].balance += amount;
+  db.distributed += amount;
+
+  await saveDB(db);
+  res.json({ balance: db.users[username].balance, distributed: db.distributed });
 });
 
-// Endpoint: ver saldo
-app.get("/balance/:playerId", (req, res) => {
-  const db = loadDB();
-  const { playerId } = req.params;
-
-  if (!db.players[playerId]) {
-    return res.json({ balance: 0 });
-  }
-
-  res.json({ balance: db.players[playerId].balance });
+// rota para checar saldo
+app.get("/balance/:username", async (req, res) => {
+  const db = await loadDB();
+  const { username } = req.params;
+  const balance = db.users[username]?.balance || 0;
+  res.json({ balance });
 });
 
-// Inicia servidor
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
